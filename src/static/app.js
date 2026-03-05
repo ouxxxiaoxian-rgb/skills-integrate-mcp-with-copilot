@@ -3,6 +3,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const activitySelect = document.getElementById("activity");
   const signupForm = document.getElementById("signup-form");
   const messageDiv = document.getElementById("message");
+  const userInfoDiv = document.getElementById("user-info");
+  const userForm = document.getElementById("user-form");
+  const userEmailInput = document.getElementById("user-email");
+  const userRoleSelect = document.getElementById("user-role");
+
+  let currentUser = null; // { email, role }
 
   // Function to fetch activities from API
   async function fetchActivities() {
@@ -75,9 +81,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     try {
       const response = await fetch(
-        `/activities/${encodeURIComponent(
-          activity
-        )}/unregister?email=${encodeURIComponent(email)}`,
+        `/activities/${encodeURIComponent(activity)}/unregister?email=${encodeURIComponent(email)}&user_email=${encodeURIComponent(currentUser.email)}`,
         {
           method: "DELETE",
         }
@@ -114,14 +118,19 @@ document.addEventListener("DOMContentLoaded", () => {
   signupForm.addEventListener("submit", async (event) => {
     event.preventDefault();
 
+    if (!currentUser) {
+      messageDiv.textContent = "You must be logged in to sign up.";
+      messageDiv.className = "error";
+      messageDiv.classList.remove("hidden");
+      return;
+    }
+
     const email = document.getElementById("email").value;
     const activity = document.getElementById("activity").value;
 
     try {
       const response = await fetch(
-        `/activities/${encodeURIComponent(
-          activity
-        )}/signup?email=${encodeURIComponent(email)}`,
+        `/activities/${encodeURIComponent(activity)}/signup?email=${encodeURIComponent(email)}&user_email=${encodeURIComponent(currentUser.email)}`,
         {
           method: "POST",
         }
@@ -155,6 +164,82 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // User handling functions
+  function saveUser(user) {
+    currentUser = user;
+    localStorage.setItem("user", JSON.stringify(user));
+    renderUserInfo();
+    renderSignupAvailability();
+  }
+
+  function loadUser() {
+    const u = localStorage.getItem("user");
+    if (u) {
+      try {
+        currentUser = JSON.parse(u);
+      } catch {
+        currentUser = null;
+      }
+    }
+    renderUserInfo();
+    renderSignupAvailability();
+  }
+
+  function renderUserInfo() {
+    if (currentUser) {
+      userInfoDiv.textContent = `Logged in as ${currentUser.email} (${currentUser.role})`;
+      userForm.classList.add("hidden");
+    } else {
+      userInfoDiv.textContent = "Not logged in";
+      userForm.classList.remove("hidden");
+    }
+  }
+
+  function renderSignupAvailability() {
+    if (!currentUser || (currentUser.role !== "Parent" && currentUser.role !== "Admin")) {
+      signupForm.classList.add("hidden");
+    } else {
+      signupForm.classList.remove("hidden");
+    }
+  }
+
+  userForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const email = userEmailInput.value;
+    const role = userRoleSelect.value;
+
+    try {
+      const resp = await fetch(`/users/register?email=${encodeURIComponent(email)}&role=${encodeURIComponent(role)}`, {
+        method: "POST",
+      });
+
+      if (!resp.ok) {
+        // if user already exists, just log in
+        if (resp.status === 400) {
+          const loginResp = await fetch(`/users/login?email=${encodeURIComponent(email)}`, {
+            method: "POST",
+          });
+          if (loginResp.ok) {
+            const user = await loginResp.json();
+            saveUser({ email, role: user.role });
+          }
+          return;
+        }
+        const err = await resp.json();
+        messageDiv.textContent = err.detail || "Error registering";
+        messageDiv.className = "error";
+        messageDiv.classList.remove("hidden");
+        return;
+      }
+
+      const data = await resp.json();
+      saveUser({ email, role });
+    } catch (e) {
+      console.error("register error", e);
+    }
+  });
+
   // Initialize app
+  loadUser();
   fetchActivities();
 });
