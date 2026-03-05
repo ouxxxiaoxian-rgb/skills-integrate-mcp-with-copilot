@@ -78,6 +78,45 @@ activities = {
 }
 
 
+
+# simple in-memory user store
+users: dict[str, dict] = {}
+
+VALID_ROLES = {"Parent", "Provider", "Admin"}
+
+def require_role(user_email: str, allowed: set[str]):
+    if user_email not in users:
+        raise HTTPException(status_code=401, detail="User not found")
+    if users[user_email]["role"] not in allowed:
+        raise HTTPException(status_code=403, detail="Forbidden: insufficient role")
+
+
+@app.post("/users/register")
+def register_user(email: str, role: str):
+    """Register a new user with a role (Parent, Provider, Admin)."""
+    if role not in VALID_ROLES:
+        raise HTTPException(status_code=400, detail="Invalid role")
+    if email in users:
+        raise HTTPException(status_code=400, detail="User already exists")
+    users[email] = {"role": role}
+    return {"message": f"Registered {email} as {role}"}
+
+
+@app.post("/users/login")
+def login_user(email: str):
+    """Log in an existing user. Returns their role."""
+    if email not in users:
+        raise HTTPException(status_code=404, detail="User not found")
+    return users[email]
+
+
+@app.get("/users/{email}")
+def get_user(email: str):
+    if email not in users:
+        raise HTTPException(status_code=404, detail="User not found")
+    return users[email]
+
+
 @app.get("/")
 def root():
     return RedirectResponse(url="/static/index.html")
@@ -89,8 +128,14 @@ def get_activities():
 
 
 @app.post("/activities/{activity_name}/signup")
-def signup_for_activity(activity_name: str, email: str):
-    """Sign up a student for an activity"""
+def signup_for_activity(activity_name: str, email: str, user_email: str):
+    """Sign up a student for an activity.
+
+    The `user_email` indicates who is performing the action; only
+    Parents or Admins may sign students up.
+    """
+    require_role(user_email, {"Parent", "Admin"})
+
     # Validate activity exists
     if activity_name not in activities:
         raise HTTPException(status_code=404, detail="Activity not found")
@@ -111,8 +156,13 @@ def signup_for_activity(activity_name: str, email: str):
 
 
 @app.delete("/activities/{activity_name}/unregister")
-def unregister_from_activity(activity_name: str, email: str):
-    """Unregister a student from an activity"""
+def unregister_from_activity(activity_name: str, email: str, user_email: str):
+    """Unregister a student from an activity.
+
+    Only Parents or Admins may remove students.
+    """
+    require_role(user_email, {"Parent", "Admin"})
+
     # Validate activity exists
     if activity_name not in activities:
         raise HTTPException(status_code=404, detail="Activity not found")
